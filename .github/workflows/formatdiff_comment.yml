@@ -1,0 +1,65 @@
+name: Before-After for Pull Request
+
+on:
+  pull_request_target:
+    types:
+      - opened
+      - synchronize
+      - reopened
+
+jobs:
+  latexbeforeafter:
+    runs-on: ubuntu-latest
+    if: contains(github.event.pull_request.labels.*.name, 'format')
+    permissions:
+      pull-requests: write
+      contents: read
+
+    steps:
+      - name: Checkout PR base (original)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.ref }}
+          path: base
+
+      - name: Checkout PR HEAD (new changes)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          path: head
+
+      - name: Compile base PDFs
+        uses: xu-cheng/latex-action@v3
+        with:
+          root_file: |
+            base/main.tex
+            head/main.tex
+          work_in_root_file_dir: true
+
+      - name: Rename PDFs
+        run: |
+          mkdir output
+          mv base/main.pdf output/before.pdf
+          mv head/main.pdf output/after.pdf
+
+      - name: Upload PDFs as artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: latex-before-after
+          path: output/*.pdf
+
+      - name: Prepare PR comment markdown
+        env:
+          RUN_ID: ${{ github.run_id }}
+          REPO: ${{ github.repository }}
+        run: |
+          echo "## 📝 Before-After comparison" > before-after-comment.md
+          echo "" >> before-after-comment.md
+          echo "PDFs for before and after: [workflow run](https://github.com/${REPO}/actions/runs/${RUN_ID}) (under _Artifacts_)" >> before-after-comment.md
+
+      - name: Comment PDF on PR
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: formatdiff
+          path: before-after-comment.md
+          recreate: true
