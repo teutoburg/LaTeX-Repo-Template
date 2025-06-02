@@ -1,0 +1,38 @@
+name: Create Release from PR
+
+on:
+  pull_request:
+    types:
+      - closed
+
+permissions:
+  contents: write
+
+jobs:
+  create-tag:
+    name: Create tag from current date
+    if: |
+      github.event.pull_request.merged == true &&
+      contains(github.event.pull_request.labels.*.name, 'release')
+    outputs:
+      tag_name: ${{ steps.tag.outputs.date_tag }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set tag name
+        id: tag
+        run: echo "date_tag=$(TZ=Europe/Vienna date +%F)" >> $GITHUB_OUTPUT
+
+      - name: Add to step summary
+        if: ${{ success() }}
+        env:
+          TAG_NAME: ${{ steps.tag.outputs.date_tag }}
+        run: echo "## Tag is $TAG_NAME" >> $GITHUB_STEP_SUMMARY
+
+  build-upload:
+    name: Build and uplaod
+    needs: create-tag
+    if: ${{ needs.create-tag.result == 'success' }}
+    uses: ./.github/workflows/upload_release.yml
+    secrets: inherit
+    with:
+      tag_name: ${{ needs.create-tag.outputs.tag_name }}
