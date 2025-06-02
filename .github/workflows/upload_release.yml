@@ -1,0 +1,54 @@
+name: Build and upload PDF to (new) release
+
+on:
+  workflow_call:
+    inputs:
+      tag_name:
+        type: string
+        description: Tag name (date).
+        required: false
+        default: ${{ github.event.release.tag_name }}
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build PDF
+    uses: ./.github/workflows/build_pdf.yml
+    secrets: inherit
+    with:
+      tag: ${{ inputs.tag_name }}
+
+  release:
+    runs-on: ubuntu-latest
+    name: Create and/or upload to Release
+    needs: build
+    if: ${{ needs.build.result == 'success' }}
+    steps:
+      - name: Retrieve PDF
+        uses: actions/download-artifact@v4
+        with:
+          name: releasepdf
+
+      - name: Create and/or upload
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ inputs.tag_name }}
+          name: Version ${{ inputs.tag_name }}
+          files: ${{ needs.build.outputs.pdfname }}
+          fail_on_unmatched_files: true
+          generate_release_notes: true
+
+      - name: Add to step summary
+        if: ${{ success() && (github.event_name == 'release') }}
+        env:
+          PDF_NAME: ${{ needs.build.outputs.pdfname }}
+          TAG_NAME: ${{ inputs.tag_name }}
+        run: echo "## Successfully uploaded $PDF_NAME to $TAG_NAME release" >> $GITHUB_STEP_SUMMARY
+
+      - name: Add to step summary
+        if: ${{ success() && (github.event_name == 'pull_request') }}
+        env:
+          TAG_NAME: ${{ inputs.tag_name }}
+        run: echo "## Successfully created release $TAG_NAME" >> $GITHUB_STEP_SUMMARY
