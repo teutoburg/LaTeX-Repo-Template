@@ -1,0 +1,77 @@
+name: Latexdiff for Pull Request
+
+on:
+  pull_request_target:
+    types:
+      - opened
+      - synchronize
+      - reopened
+
+jobs:
+  latexdiff:
+    runs-on: ubuntu-latest
+    if: contains(github.event.pull_request.labels.*.name, 'content')
+    permissions:
+      pull-requests: write
+      contents: read
+
+    steps:
+      - name: Checkout PR base and full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup and Run git-latexdiff
+        id: diff
+        uses: xu-cheng/texlive-action@v2
+        continue-on-error: true  # Diff might be empty
+        with:
+          scheme: full
+          run: |
+            apk add git g++ make asciidoc
+            cd /opt
+            git clone https://gitlab.com/git-latexdiff/git-latexdiff.git
+            cd /opt/git-latexdiff
+            make install
+            cd $GITHUB_WORKSPACE
+            git config --global --add safe.directory $GITHUB_WORKSPACE
+            git config --global --add safe.directory $GITHUB_WORKSPACE/.git
+            git-latexdiff --verbose --main main.tex --no-view -o diff.pdf \
+              --cleanup all --ignore-makefile -s ONLYCHANGEDPAGE --graphics-markup=none \
+              ${{ github.event.pull_request.base.sha }} ${{ github.event.pull_request.head.sha }}
+
+      - name: Upload PDF as artifact
+        if: steps.diff.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: latexdiff
+          path: diff.pdf
+
+      - name: Prepare PR comment markdown for success
+        if: steps.diff.outcome == 'success'
+        env:
+          RUN_ID: ${{ github.run_id }}
+          REPO: ${{ github.repository }}
+        run: |
+          echo "## 📝 Latexdiff output" > diff-comment.md
+          echo "" >> diff-comment.md
+          echo "Diff-PDF with marked changes: [workflow run](https://github.com/${REPO}/actions/runs/${RUN_ID}) (under _Artifacts_)" >> diff-comment.md
+          echo "" >> diff-comment.md
+          echo "Added text is shown in blue wavy-underlined, removed text is shown in red strikethrough." >> diff-comment.md
+
+      - name: Prepare PR comment markdown for failure
+        if: steps.diff.outcome == 'failure'
+        env:
+          RUN_ID: ${{ github.run_id }}
+          REPO: ${{ github.repository }}
+        run: |
+          echo "## 📝 Latexdiff output" > diff-comment.md
+          echo "" >> diff-comment.md
+          echo "**Error**: Diff-PDF couldn't be generated." >> diff-comment.md
+
+      - name: Comment PDF on PR
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: latexdiff
+          path: diff-comment.md
+          recreate: true
