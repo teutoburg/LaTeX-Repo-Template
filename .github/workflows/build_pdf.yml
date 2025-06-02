@@ -1,0 +1,56 @@
+name: Build and store PDF
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        type: string
+        description: Tag name (date).
+        required: true
+    outputs:
+      pdfname:
+        description: Name of the generated PDF.
+        value: ${{ jobs.build.outputs.pdfname }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      pdfname: ${{ steps.vars.outputs.output_name }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Get repo and tag names
+        id: vars
+        env:
+          TAG_NAME: ${{ inputs.tag }}
+        run: |
+          REPO_NAME=$(basename "$GITHUB_REPOSITORY")
+          output_name="${REPO_NAME}_version_${TAG_NAME}.pdf"
+          echo "output_name=$output_name" >> $GITHUB_OUTPUT
+
+      - name: Replace date in source
+        env:
+          TAG_NAME: ${{ inputs.tag }}
+        run: sed -i -E "s|(\\\\date\{)[^}]+(\})|\1$TAG_NAME\2|" "main.tex"
+
+      - name: Compile PDF
+        uses: xu-cheng/latex-action@v3
+        with:
+          root_file: main.tex
+
+      - name: Rename PDF
+        run: mv main.pdf ${{ steps.vars.outputs.output_name }}
+
+      - name: Store PDF
+        uses: actions/upload-artifact@v4
+        with:
+          name: releasepdf
+          path: ${{ steps.vars.outputs.output_name }}
+
+      - name: Add to step summary
+        if: ${{ success() }}
+        env:
+          PDF_NAME: ${{ steps.vars.outputs.output_name }}
+        run: echo "## Successfully built $PDF_NAME" >> $GITHUB_STEP_SUMMARY
